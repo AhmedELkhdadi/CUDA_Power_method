@@ -31,18 +31,18 @@ __device__ void init_ligneGPU(REAL_T *d_A, long i, long n)
 
 __global__ void init(float *d_A, float *d_X, int d_n){
         // printf("Hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
-        // int x =0 
-        // unsigned int i = blockDim.x* blockIdx.x + threadIdx.x;
-        // if(i < d_n){
+        unsigned int i = blockDim.x* blockIdx.x + threadIdx.x;
+        if(i < d_n){
             // init_ligne(d_A, i, d_n);
-            // init_ligneGPU(d_A, i, d_n);
-            // d_X[i] = 1.0 / d_n;
-        // }
+            init_ligneGPU(d_A, i, d_n);
+            d_X[i] = 1.0 / d_n;
+        }
 }
 
 __global__ void prodMatVec(float *d_A, float *d_X, int d_n, float *d_Y, float *d_N, float *d_norme){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         if(i < d_n){
+            // *d_norme = 0 ;
         d_Y[i] = 0;
         d_N[i] = 0;
         for(unsigned int j = 0; j < d_n; j++){
@@ -55,13 +55,21 @@ __global__ void prodMatVec(float *d_A, float *d_X, int d_n, float *d_Y, float *d
 
 
 
-__global__  void normalisationEtErreur(float *d_X, float *d_Y, float d_norme, float *d_E, float *d_erreur, int d_n){
+__global__  void normalisationEtErreur(float *d_X, float *d_Y, float *d_norme, float *d_E, float *d_erreur, int d_n){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         if(i < d_n){
-        d_Y[i] = d_Y[i] / d_norme;
+            // *d_erreur  = 0 ;
+        d_Y[i] = d_Y[i] / *d_norme;
         d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
         atomicAdd(d_erreur, d_E[i]);         
         }
+}
+
+__global__ void swichXandY(float *d_X,float *d_Y, int d_n){
+    unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+    if(i < d_n){
+        d_X[i] = d_Y[i];
+    }
 }
 
 
@@ -86,6 +94,7 @@ int main(int argc, char **argv){
         exit(1);
     }
     
+    
     n = atoi(argv[1]);
 
     // tailles blocs
@@ -102,8 +111,8 @@ int main(int argc, char **argv){
     X = (REAL_T *)malloc(size_X);
     error = (REAL_T *)malloc(sizeof(REAL_T));
 
-    /*** allocation de la matrice et des vecteurs sur GPU ***/
-    /*** initialisation de la matrice et de x ***/
+    // /*** allocation de la matrice et des vecteurs sur GPU ***/
+    // /*** initialisation de la matrice et de x ***/
     
     cudaMalloc((void **) &d_n, sizeof(int));
     cudaMalloc((void **) &d_norme, sizeof(REAL_T));
@@ -124,43 +133,43 @@ int main(int argc, char **argv){
     start_time = my_gettimeofday();
     *error = INFINITY;
     n_iterations = 0;
-    // while (error > ERROR_THRESHOLD) {
-    while (n_iterations <3) {
-        printf("-1 test\n");
+    // // while (error > ERROR_THRESHOLD) {
+    while (*error > 10e-5) {
+    //     printf("-1 test\n");
 
         printf("iteration %4d, erreur actuelle %f\n", n_iterations, *error);
         printf("0 test\n");
         
 
-        /*** initialisation A X ***/
+        // initialisation A X 
         init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
-        // cudaDeviceSynchronize();
-        /*** y <--- A.x ***/
+    //     // cudaDeviceSynchronize();
         printf("1 test");
 
-        prodMatVec<<<tailleGrille, threadsParBloc>>>(d_A, d_X, *d_n, d_Y, d_N, d_norme);
-        printf("2 test");
+        prodMatVec<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n, d_Y, d_N, d_norme);
+    //     printf("2 test");
         
         cudaMemcpy(X,d_X, size_X, cudaMemcpyDeviceToHost);
 
 
 
         
-        /*** y <--- y / ||y|| ***/
-        normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, *d_norme, d_E, d_erreur,*d_n);
-        printf("test");
+    //     /*** y <--- y / ||y|| ***/
+        normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, d_norme, d_E, d_erreur,n);
+    //     printf("test");
 
-        printf("1 %g\n", *error);
+    //     printf("1 %g\n", *error);
 
         cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
         
-        /// copier d_y dans d_x
-        d_X = d_Y;
-        printf("2 %g\n", *error);
-        /*** error <--- ||x - y|| ***/
+    //     /// copier d_y dans d_x
+        // d_X = d_Y;
+        swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
+    //     printf("2 %g\n", *error);
+    //     /*** error <--- ||x - y|| ***/
         *error = sqrt(*error);
-        printf("4 %g\n", *error);
-        /*** x <--> y ***/
+    //     printf("4 %g\n", *error);
+    //     /*** x <--> y ***/
 
         n_iterations++;
     }
