@@ -1,0 +1,5 @@
+ssh -t aabdi@access.grid5000.fr ssh lille
+sshfs -o idmap=user aabdi@access.grid5000.fr:/mnt/home/lille/aabdi G5K_lille
+oarsub -l /gpu=1/cpu=1/core=2/,walltime=2:0:0 -I -p "gpu_model = 'GTX 1080 Ti'"
+/usr/local/cuda/extras/demo_suite/deviceQuery
+nvidia-smi -a
