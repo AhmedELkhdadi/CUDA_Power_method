@@ -33,7 +33,7 @@ __device__ void init_ligneGPU(REAL_T *d_A, long i, long n)
 }
 
 
-__global__ void init(float *d_A, float *d_X, int d_n){
+__global__ void init(REAL_T *d_A, REAL_T *d_X, int d_n){
         unsigned int i = blockDim.x* blockIdx.x + threadIdx.x;
         if(i < d_n){
             
@@ -42,7 +42,7 @@ __global__ void init(float *d_A, float *d_X, int d_n){
         }
 }
 
-__global__ void prodMatVec(float *d_A, float *d_X, int d_n, float *d_Y, float *d_N, float *d_norme){
+__global__ void prodMatVec(REAL_T *d_A, REAL_T *d_X, int d_n, REAL_T *d_Y, REAL_T *d_N, REAL_T *d_norme){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         if(i < d_n){
         d_Y[i] = 0;
@@ -50,34 +50,37 @@ __global__ void prodMatVec(float *d_A, float *d_X, int d_n, float *d_Y, float *d
             d_Y[i] += d_A[i*d_n + j] * d_X[j];
         }
         d_N[i] = d_Y[i] * d_Y[i];
-        *d_norme = 0 ; 
+        // *d_norme = 0 ; 
         atomicAdd(d_norme, d_N[i]);
     }
 }
 
 
-// __global__ void errorAndNormTozero(float *d_norme, float *d_erreur, int d_n){
-//     unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
-//     if(i < d_n){
-//         *d_erreur= 0;
-//         *d_norme= 0;
-//     }
-// }
+__global__ void errorAndNormTozero(REAL_T *d_norme, REAL_T *d_erreur, int d_n){
+    unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+        if(i == 0){
+            *d_erreur= 0;
+            *d_norme= 0;
+    }
+}
 
 
-__global__  void normalisationEtErreur(float *d_X, float *d_Y, float *d_norme, float *d_E, float *d_erreur, int d_n){
+__global__  void normalisationEtErreur(REAL_T *d_X, REAL_T *d_Y, REAL_T *d_norme, REAL_T *d_E, REAL_T *d_erreur, int d_n){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         
         if(i < d_n){
-            *d_erreur = 0;
-            d_Y[i] = d_Y[i] / *d_norme;
+            // *d_erreur = 0;
+            d_Y[i] = d_Y[i] / sqrt(*d_norme);
             d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
 
             atomicAdd(d_erreur, d_E[i]);   
+            if(i == 1)
+                printf("\n\n gpu err2 = %g\n", sqrt(*d_erreur));
+
         }
 }
 
-__global__ void swichXandY(float *d_X,float *d_Y, int d_n){
+__global__ void swichXandY(REAL_T *d_X,REAL_T *d_Y, int d_n){
     unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
     if(i < d_n){
         d_X[i] = d_Y[i];
@@ -102,7 +105,7 @@ int main(int argc, char **argv){
     REAL_T *d_A, *d_X, *d_Y, *d_N, *d_E;
     REAL_T *tmp;
     
-    int zero = 0;
+    REAL_T zero = 0;
 
     if (argc < 2) {
         printf("USAGE: %s [n]\n", argv[0]);
@@ -150,27 +153,29 @@ int main(int argc, char **argv){
     n_iterations = 0;
     
     init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
-    while (*error > 10e-5) {
-        printf("iteration %4d, erreur actuelle %f\n", n_iterations, *error);
+    while (*error > 10e-9) {
+        printf("iteration %4d, erreur actuelle %g\n", n_iterations, *error);
         
-        // errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
+        errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
+        
+        // cudaMemcpy(d_norme, &zero, sizeof(REAL_T), cudaMemcpyHostToDevice);
         
         prodMatVec<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n, d_Y, d_N, d_norme);
         
     //     /*** y <--- y / ||y|| ***/
+        // cudaMemcpy(d_erreur, &zero, sizeof(REAL_T), cudaMemcpyHostToDevice);
         normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, d_norme, d_E, d_erreur,n);
-    
+        cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
+        *error = sqrt(*error);
+        printf("\n\n err2 = %g\n", *error);
+        
     //     /// copier d_y dans d_x
 
-        swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
+        // swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
     //     /*** error <--- ||x - y|| ***/
-
-        cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
-
-        *error = sqrt(*error);
-        // tmp = d_X;
-        // d_X = d_Y;
-        // d_Y = tmp;
+        tmp = d_X;
+        d_X = d_Y;
+        d_Y = tmp;
 
     //     /*** x <--> y ***/
         n_iterations++;
