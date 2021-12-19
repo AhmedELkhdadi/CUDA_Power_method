@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     {
         for (j = 0; j < n; j++)
         {
-            *************************************A_i[j] = (((REAL_T)((i * i * PRNG_1 + j * j * PRNG_2) & PRNG_MAX)) / PRNG_MAX) / n;
+            A_i[j] = (((REAL_T)((i * i * PRNG_1 + j * j * PRNG_2) & PRNG_MAX)) / PRNG_MAX) / n;
         }
         for (k = 1; k < n; k *= 2)
         {

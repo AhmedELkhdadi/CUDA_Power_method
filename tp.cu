@@ -50,6 +50,7 @@ __global__ void prodMatVec(REAL_T *d_A, REAL_T *d_X, int d_n, REAL_T *d_Y, REAL_
             d_Y[i] += d_A[i*d_n + j] * d_X[j];
         }
         d_N[i] = d_Y[i] * d_Y[i];
+        // if(n == )
         // *d_norme = 0 ; 
         atomicAdd(d_norme, d_N[i]);
     }
@@ -69,13 +70,11 @@ __global__  void normalisationEtErreur(REAL_T *d_X, REAL_T *d_Y, REAL_T *d_norme
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         
         if(i < d_n){
-            // *d_erreur = 0;
             d_Y[i] = d_Y[i] / sqrt(*d_norme);
             d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
-
+            // *d_erreur = 0;
+            
             atomicAdd(d_erreur, d_E[i]);   
-            if(i == 1)
-                printf("\n\n gpu err2 = %g\n", sqrt(*d_erreur));
         }
 }
 
@@ -163,8 +162,7 @@ int main(int argc, char **argv){
     n_iterations = 0;
     
     init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
-    while (*error > 10e-9) {
-        printf("iteration %4d, erreur actuelle %g\n", n_iterations, *error);
+    while (*error > 1e-9) {
         
         errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
         
@@ -173,20 +171,19 @@ int main(int argc, char **argv){
         /*** y <--- y / ||y|| ***/
         normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, d_norme, d_E, d_erreur,n);
 
+        /*** calcule de l'erreur ***/
         cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
         *error = sqrt(*error);
-
-        printf("\n\n err2 = %g\n", *error);
         
         /// copier d_y dans d_x
-
-    //     /*** error <--- ||x - y|| ***/
+        /*** x <--> y ***/
         tmp = d_X;
         d_X = d_Y;
         d_Y = tmp;
 
-    //     /*** x <--> y ***/
+    
         n_iterations++;
+        printf("iteration %4d, erreur actuelle %g\n", n_iterations, *error);
     }
 
     cudaMemcpy( X,d_X, size_X, cudaMemcpyDeviceToHost);
