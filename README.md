@@ -1,7 +1,7 @@
 # CUDA_Power_method
 An implementation of the power methode in C and CUDA
 
-In grid5000 or if you have 
+In a grid5000 machine or if you have An nvidia GPU and Cuda installed
 
 Compile tp.cu with the following command 
 
@@ -9,5 +9,4 @@ Compile tp.cu with the following command
 
 then run 
 
-`./tp_power [Size of matrixe]`
-`
+`./tp_power [Size of matrix]`
