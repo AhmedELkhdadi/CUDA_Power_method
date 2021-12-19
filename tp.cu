@@ -76,8 +76,17 @@ __global__  void normalisationEtErreur(REAL_T *d_X, REAL_T *d_Y, REAL_T *d_norme
             atomicAdd(d_erreur, d_E[i]);   
             if(i == 1)
                 printf("\n\n gpu err2 = %g\n", sqrt(*d_erreur));
-
         }
+}
+
+__global__ void calculateError(REAL_T *d_X, REAL_T *d_Y, REAL_T *d_E, REAL_T *d_erreur, int d_n){
+    unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+        
+        if(i < d_n){
+            d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
+            atomicAdd(d_erreur, d_E[i]);   
+        }
+
 }
 
 __global__ void swichXandY(REAL_T *d_X,REAL_T *d_Y, int d_n){
@@ -98,7 +107,7 @@ int main(int argc, char **argv){
     int n_iterations;
     FILE *output;
     REAL_T *X;
-    REAL_T norm;
+    REAL_T *norm;
     // GPU
     int *d_n;
     REAL_T *d_norme, *d_erreur;
@@ -128,6 +137,7 @@ int main(int argc, char **argv){
     
     X = (REAL_T *)malloc(size_X);
     error = (REAL_T *)malloc(sizeof(REAL_T));
+    norm = (REAL_T *)malloc(sizeof(REAL_T));
 
     // /*** allocation de la matrice et des vecteurs sur GPU ***/
     // /*** initialisation de la matrice et de x ***/
@@ -158,20 +168,18 @@ int main(int argc, char **argv){
         
         errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
         
-        // cudaMemcpy(d_norme, &zero, sizeof(REAL_T), cudaMemcpyHostToDevice);
-        
         prodMatVec<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n, d_Y, d_N, d_norme);
         
-    //     /*** y <--- y / ||y|| ***/
-        // cudaMemcpy(d_erreur, &zero, sizeof(REAL_T), cudaMemcpyHostToDevice);
+        /*** y <--- y / ||y|| ***/
         normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, d_norme, d_E, d_erreur,n);
+
         cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
         *error = sqrt(*error);
+
         printf("\n\n err2 = %g\n", *error);
         
-    //     /// copier d_y dans d_x
+        /// copier d_y dans d_x
 
-        // swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
     //     /*** error <--- ||x - y|| ***/
         tmp = d_X;
         d_X = d_Y;
@@ -182,11 +190,11 @@ int main(int argc, char **argv){
     }
 
     cudaMemcpy( X,d_X, size_X, cudaMemcpyDeviceToHost);
-    cudaMemcpy(&norm, d_norme , sizeof(REAL_T), cudaMemcpyDeviceToHost);
-
+    cudaMemcpy(norm, d_norme , sizeof(REAL_T), cudaMemcpyDeviceToHost);
+    *norm = sqrt(*norm);
 
     total_time = my_gettimeofday() - start_time;
-    printf("erreur finale après %4d iterations : %g (|VP| = %g)\n", n_iterations, *error, norm);
+    printf("erreur finale après %4d iterations : %g (|VP| = %g)\n", n_iterations, *error, *norm);
     printf("temps : %.1f s      Mflop/s : %.1f \n", total_time, (2.0 * n * n + 7.0 * n) * n_iterations / 1048576. / total_time);
 
     /*** stocke le vecteur propre dans un fichier ***/
