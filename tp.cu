@@ -7,10 +7,14 @@
 
 #include "defs.h"
 
+// Define this to turn on error checking
+#define CUDA_ERROR_CHECK
+
 #define NB_THREADS_BLOC 256
 
 __device__ void init_ligneGPU(REAL_T *d_A, long i, long n)
-{
+{   
+    
     for (long j = 0; j < n; j++)
     {
         d_A[i * n + j] = (((REAL_T)((i * i * PRNG_1 + j * j * PRNG_2) & PRNG_MAX)) / PRNG_MAX) / n;
@@ -30,10 +34,9 @@ __device__ void init_ligneGPU(REAL_T *d_A, long i, long n)
 
 
 __global__ void init(float *d_A, float *d_X, int d_n){
-        // printf("Hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
         unsigned int i = blockDim.x* blockIdx.x + threadIdx.x;
         if(i < d_n){
-            // init_ligne(d_A, i, d_n);
+            
             init_ligneGPU(d_A, i, d_n);
             d_X[i] = 1.0 / d_n;
         }
@@ -42,26 +45,35 @@ __global__ void init(float *d_A, float *d_X, int d_n){
 __global__ void prodMatVec(float *d_A, float *d_X, int d_n, float *d_Y, float *d_N, float *d_norme){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
         if(i < d_n){
-            // *d_norme = 0 ;
         d_Y[i] = 0;
-        d_N[i] = 0;
         for(unsigned int j = 0; j < d_n; j++){
             d_Y[i] += d_A[i*d_n + j] * d_X[j];
-            d_N[i] += d_Y[i] * d_Y[i];
         }
+        d_N[i] = d_Y[i] * d_Y[i];
+        *d_norme = 0 ; 
         atomicAdd(d_norme, d_N[i]);
     }
 }
 
 
+// __global__ void errorAndNormTozero(float *d_norme, float *d_erreur, int d_n){
+//     unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+//     if(i < d_n){
+//         *d_erreur= 0;
+//         *d_norme= 0;
+//     }
+// }
+
 
 __global__  void normalisationEtErreur(float *d_X, float *d_Y, float *d_norme, float *d_E, float *d_erreur, int d_n){
         unsigned int i = blockDim.x*blockIdx.x + threadIdx.x;
+        
         if(i < d_n){
-            // *d_erreur  = 0 ;
-        d_Y[i] = d_Y[i] / *d_norme;
-        d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
-        atomicAdd(d_erreur, d_E[i]);         
+            *d_erreur = 0;
+            d_Y[i] = d_Y[i] / *d_norme;
+            d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
+
+            atomicAdd(d_erreur, d_E[i]);   
         }
 }
 
@@ -78,7 +90,7 @@ int main(int argc, char **argv){
     int i, j, n;
     long long size_a, size_x;
     REAL_T  delta;
-    REAL_T * error;
+    REAL_T *error;
     double start_time, total_time;
     int n_iterations;
     FILE *output;
@@ -88,7 +100,10 @@ int main(int argc, char **argv){
     int *d_n;
     REAL_T *d_norme, *d_erreur;
     REAL_T *d_A, *d_X, *d_Y, *d_N, *d_E;
+    REAL_T *tmp;
     
+    int zero = 0;
+
     if (argc < 2) {
         printf("USAGE: %s [n]\n", argv[0]);
         exit(1);
@@ -133,46 +148,34 @@ int main(int argc, char **argv){
     start_time = my_gettimeofday();
     *error = INFINITY;
     n_iterations = 0;
-    // // while (error > ERROR_THRESHOLD) {
+    
+    init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
     while (*error > 10e-5) {
-    //     printf("-1 test\n");
-
         printf("iteration %4d, erreur actuelle %f\n", n_iterations, *error);
-        printf("0 test\n");
         
-
-        // initialisation A X 
-        init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
-    //     // cudaDeviceSynchronize();
-        printf("1 test");
-
+        // errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
+        
         prodMatVec<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n, d_Y, d_N, d_norme);
-    //     printf("2 test");
-        
-        cudaMemcpy(X,d_X, size_X, cudaMemcpyDeviceToHost);
-
-
-
         
     //     /*** y <--- y / ||y|| ***/
         normalisationEtErreur<<<tailleGrille, threadsParBloc>>>(d_X, d_Y, d_norme, d_E, d_erreur,n);
-    //     printf("test");
+    
+    //     /// copier d_y dans d_x
 
-    //     printf("1 %g\n", *error);
+        swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
+    //     /*** error <--- ||x - y|| ***/
 
         cudaMemcpy(error,d_erreur, sizeof(REAL_T), cudaMemcpyDeviceToHost);
-        
-    //     /// copier d_y dans d_x
-        // d_X = d_Y;
-        swichXandY<<<tailleGrille, threadsParBloc>>>(d_X,d_Y,n);
-    //     printf("2 %g\n", *error);
-    //     /*** error <--- ||x - y|| ***/
-        *error = sqrt(*error);
-    //     printf("4 %g\n", *error);
-    //     /*** x <--> y ***/
 
+        *error = sqrt(*error);
+        // tmp = d_X;
+        // d_X = d_Y;
+        // d_Y = tmp;
+
+    //     /*** x <--> y ***/
         n_iterations++;
     }
+
     cudaMemcpy( X,d_X, size_X, cudaMemcpyDeviceToHost);
     cudaMemcpy(&norm, d_norme , sizeof(REAL_T), cudaMemcpyDeviceToHost);
 
