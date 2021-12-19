@@ -152,7 +152,7 @@ int main(int argc, char **argv){
     cudaMalloc((void **) &d_E, size_x);
     
     /*** envoyer la taille de la matrice au GPU ***/
-    cudaMemcpy(d_n, &n, sizeof(int), cudaMemcpyHostToDevice);
+    // cudaMemcpy(d_n, &n, sizeof(int), cudaMemcpyHostToDevice);
 
     dim3 threadsParBloc(NB_THREADS_BLOC, 1);
     dim3 tailleGrille(ceil(n/NB_THREADS_BLOC),1);
@@ -162,7 +162,7 @@ int main(int argc, char **argv){
     n_iterations = 0;
     
     init<<<tailleGrille, threadsParBloc>>>(d_A, d_X, n);
-    while (*error > 1e-9) {
+    while (*error > 1e-5) {
         
         errorAndNormTozero<<<tailleGrille, threadsParBloc>>>(d_erreur, d_norme, n);
         
