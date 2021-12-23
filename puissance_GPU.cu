@@ -7,8 +7,6 @@
 
 #include "defs.h"
 
-// Define this to turn on error checking
-#define CUDA_ERROR_CHECK
 
 #define NB_THREADS_BLOC 256
 
@@ -50,8 +48,6 @@ __global__ void prodMatVec(REAL_T *d_A, REAL_T *d_X, int d_n, REAL_T *d_Y, REAL_
             d_Y[i] += d_A[i*d_n + j] * d_X[j];
         }
         d_N[i] = d_Y[i] * d_Y[i];
-        // if(n == )
-        // *d_norme = 0 ; 
         atomicAdd(d_norme, d_N[i]);
     }
 }
@@ -72,8 +68,6 @@ __global__  void normalisationEtErreur(REAL_T *d_X, REAL_T *d_Y, REAL_T *d_norme
         if(i < d_n){
             d_Y[i] = d_Y[i] / sqrt(*d_norme);
             d_E[i] = (d_X[i] - d_Y[i]) * (d_X[i] - d_Y[i]);
-            // *d_erreur = 0;
-            
             atomicAdd(d_erreur, d_E[i]);   
         }
 }
